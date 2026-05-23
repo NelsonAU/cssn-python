@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSSN Breedesizer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #111318;
+      --surface:  #1c1f2a;
+      --border:   #2e3244;
+      --selected: #5c6bc0;
+      --accent:   #7986cb;
+      --text:     #d0d4e8;
+      --muted:    #6b7094;
+      --wave:     #5c8aff;
+      --wave-bg:  #141722;
+      --radius:   10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 18px 28px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      color: var(--accent);
+    }
+    #status-pill {
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      transition: all .3s;
+    }
+    #status-pill.waiting  { border-color: var(--accent); color: var(--accent); }
+    #status-pill.evolving { border-color: #ffb300;       color: #ffb300; }
+    #status-pill.done     { border-color: #66bb6a;       color: #66bb6a; }
+    #status-pill.error    { border-color: #ef5350;       color: #ef5350; }
+
+    #gen-label {
+      margin-left: auto;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    #gen-label span {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    main {
+      flex: 1;
+      padding: 24px 28px;
+    }
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 14px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color .2s, transform .15s;
+      cursor: pointer;
+      user-select: none;
+    }
+    .card:hover  { border-color: var(--accent); }
+    .card.sel    { border-color: var(--selected); background: #1e2236; }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-num {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      min-width: 22px;
+    }
+    .card-check {
+      margin-left: auto;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      transition: all .2s;
+      flex-shrink: 0;
+    }
+    .card.sel .card-check {
+      background: var(--selected);
+      border-color: var(--selected);
+    }
+    .card.sel .card-check::after { content: "✓"; color: #fff; }
+
+    .wave-wrap {
+      background: var(--wave-bg);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    canvas.wave {
+      display: block;
+      width: 100%;
+      height: 64px;
+    }
+
+    audio {
+      width: 100%;
+      height: 32px;
+      /* Stop click on <audio> from toggling card selection */
+    }
+
+    #overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 11, 16, .75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+    }
+    #overlay.visible { display: flex; }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #overlay p { color: var(--muted); font-size: 13px; }
+
+    footer {
+      padding: 16px 28px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    #sel-count {
+      font-size: 13px;
+      color: var(--muted);
+      min-width: 120px;
+    }
+    #evolve-btn {
+      margin-left: auto;
+      padding: 10px 26px;
+      border-radius: 8px;
+      border: none;
+      background: var(--selected);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: .03em;
+      cursor: pointer;
+      transition: opacity .2s, background .2s;
+    }
+    #evolve-btn:disabled {
+      opacity: .35;
+      cursor: not-allowed;
+    }
+    #evolve-btn:not(:disabled):hover { background: var(--accent); }
+
+    #empty {
+      display: none;
+      padding: 60px 0;
+      text-align: center;
+      color: var(--muted);
+    }
+    #empty.visible { display: block; }
+    #empty p { margin-top: 8px; font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>CSSN Breedesizer</h1>
+  <div id="status-pill">starting</div>
+  <div id="gen-label">Generation <span id="gen-num">—</span></div>
+</header>
+
+<main>
+  <div id="grid"></div>
+  <div id="empty">
+    <div style="font-size:32px">🎵</div>
+    <p id="empty-msg">Waiting for first generation…</p>
+  </div>
+</main>
+
+<footer>
+  <div id="sel-count">No sounds selected</div>
+  <button id="evolve-btn" disabled>Evolve Next Generation →</button>
+</footer>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  <p id="overlay-msg">Evolving…</p>
+</div>
+
+<script>
+let currentGen    = 0;
+let currentStatus = "";
+let selected      = new Set();   // set of string IDs
+
+const grid       = document.getElementById("grid");
+const empty      = document.getElementById("empty");
+const emptyMsg   = document.getElementById("empty-msg");
+const genNum     = document.getElementById("gen-num");
+const statusPill = document.getElementById("status-pill");
+const selCount   = document.getElementById("sel-count");
+const evolveBtn  = document.getElementById("evolve-btn");
+const overlay    = document.getElementById("overlay");
+const overlayMsg = document.getElementById("overlay-msg");
+
+function drawWaveform(canvas, carData, modData) {
+  const dpr = window.devicePixelRatio || 1;
+  const w   = canvas.offsetWidth  || 200;
+  const h   = canvas.offsetHeight || 64;
+  canvas.width  = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  // Background
+  ctx.fillStyle = getComputedStyle(document.documentElement)
+    .getPropertyValue("--wave-bg").trim();
+  ctx.fillRect(0, 0, w, h);
+
+  // Center line
+  ctx.strokeStyle = "rgba(255,255,255,.06)";
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, h / 2);
+  ctx.lineTo(w, h / 2);
+  ctx.stroke();
+
+  function drawLine(data, color) {
+    if (!data || data.length < 2) return;
+    const pts = data.map((v, i) => ({
+      x: (i / (data.length - 1)) * w,
+      y: ((1 - v) / 2) * h,
+    }));
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 1.5;
+    ctx.lineJoin    = "round";
+    ctx.beginPath();
+    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+  }
+
+  // Green = Carrier, Blue = Modulator (§3.1 / Fig 4)
+  drawLine(modData, "#42a5f5"); // Blue modulator
+  drawLine(carData, "#66bb6a"); // Green carrier
+}
+
+function buildCard(ind) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.dataset.id = ind.id;
+
+  card.innerHTML = `
+    <div class="card-header">
+      <span class="card-num">#${ind.id}</span>
+      <div class="card-check"></div>
+    </div>
+    <div class="wave-wrap">
+      <canvas class="wave" height="64"></canvas>
+    </div>
+    <audio controls preload="auto" src="/audio/${ind.filename}"></audio>
+  `;
+
+  // Toggle selection on card click, but not when interacting with audio.
+  card.addEventListener("click", e => {
+    if (e.target.closest("audio")) return;
+    toggleSelect(ind.id, card);
+  });
+
+  // Draw waveform after layout so offsetWidth is valid.
+  requestAnimationFrame(() => {
+    drawWaveform(card.querySelector("canvas.wave"), ind.waveform_car, ind.waveform_mod);
+  });
+
+  return card;
+}
+
+function toggleSelect(id, card) {
+  if (selected.has(id)) {
+    selected.delete(id);
+    card.classList.remove("sel");
+  } else {
+    selected.add(id);
+    card.classList.add("sel");
+  }
+  updateFooter();
+}
+
+function updateFooter() {
+  const n = selected.size;
+  selCount.textContent = n === 0
+    ? "No sounds selected"
+    : `${n} sound${n > 1 ? "s" : ""} selected`;
+  evolveBtn.disabled = (n === 0 || currentStatus !== "waiting");
+}
+
+function renderGeneration(individuals) {
+  selected.clear();
+  grid.innerHTML = "";
+
+  individuals.forEach(ind => grid.appendChild(buildCard(ind)));
+
+  empty.classList.remove("visible");
+  grid.style.display = "";
+  updateFooter();
+}
+
+function setStatus(status, gen) {
+  genNum.textContent = gen > 0 ? gen : "—";
+
+  statusPill.className = ""; // reset classes
+  statusPill.classList.add(status);
+
+  const labels = {
+    starting: "Starting…",
+    evolving: "Evolving…",
+    waiting:  "Select favorites",
+    done:     "Done",
+    error:    "Error",
+  };
+  statusPill.textContent = labels[status] || status;
+
+  // Overlay: show while evolving or starting, hide when waiting/done.
+  if (status === "evolving" || status === "starting") {
+    overlayMsg.textContent = status === "starting" ? "Starting up…" : "Evolving…";
+    overlay.classList.add("visible");
+  } else {
+    overlay.classList.remove("visible");
+  }
+
+  if (status === "done") {
+    evolveBtn.disabled    = true;
+    evolveBtn.textContent = "Evolution complete";
+    empty.classList.remove("visible");
+  }
+  if (status === "error") {
+    emptyMsg.textContent = "An error occurred — check the server console.";
+    empty.classList.add("visible");
+    grid.style.display = "none";
+    overlay.classList.remove("visible");
+  }
+}
+
+let _lastGen = -1;
+
+async function poll() {
+  try {
+    const res  = await fetch("/api/state");
+    const data = await res.json();
+
+    if (data.gen !== _lastGen && data.status === "waiting") {
+      _lastGen = data.gen;
+      renderGeneration(data.individuals);
+    }
+
+    if (data.status !== currentStatus || data.gen !== currentGen) {
+      currentStatus = data.status;
+      currentGen    = data.gen;
+      setStatus(data.status, data.gen);
+      updateFooter();
+    }
+  } catch (_) {
+    // Server not ready yet — silently retry.
+  }
+  setTimeout(poll, 600);
+}
+
+evolveBtn.addEventListener("click", async () => {
+  if (selected.size === 0 || currentStatus !== "waiting") return;
+
+  evolveBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/select", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ selected: [...selected] }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    // Immediately show evolving state without waiting for next poll.
+    currentStatus = "evolving";
+    setStatus("evolving", currentGen);
+
+  } catch (err) {
+    alert("Could not submit selection: " + err.message);
+    evolveBtn.disabled = false;
+  }
+});
+
+setStatus("starting", 0);
+empty.classList.add("visible");
+poll();
+</script>
+</body>
+</html>
