@@ -6,7 +6,7 @@ Intended to match the spirit of the Breedesizer UI described in §3.2 of the
 paper.
 
 Usage:
-    python app.py [--output DIR] [--config FILE] [--no-fm] [--generations N]
+    python app.py [--output DIR] [--no-fm] [--generations N]
 
 Then open  http://localhost:5001  in a browser.
 """
@@ -18,13 +18,10 @@ import os
 import threading
 from pathlib import Path
 
-import neat
 from flask import Flask, jsonify, render_template, request, send_file
 
-# Import the CSSN synthesis pipeline from the sibling module.
-# The activation-function monkey-patch in cssn.py runs at import time,
-# before any neat.Config is created — that ordering is required.
 import cssn
+import neat_impl
 
 # Flask app
 
@@ -48,22 +45,16 @@ _selected_ids: list[str] = []    # set just before _sel_given is set
 
 # Evolution thread
 
-def _run_evolution(config_path: str, output_dir: str,
+def _run_evolution(output_dir: str,
                    fm_enabled: bool, n_generations: int) -> None:
     """Background thread: runs NEAT and pauses each generation for user input."""
     try:
-        config = neat.Config(
-            neat.DefaultGenome,
-            neat.DefaultReproduction,
-            neat.DefaultSpeciesSet,
-            neat.DefaultStagnation,
-            config_path,
-        )
-        pop = neat.Population(config)
+        config = cssn.make_neat_config()
+        pop    = neat_impl.Population(config)
 
         gen_counter: list[int] = [0]
 
-        def fitness_fn(genomes: list, cfg: neat.Config) -> None:
+        def fitness_fn(genomes: list[neat_impl.Genome]) -> None:
             gen_counter[0] += 1
             g = gen_counter[0]
 
@@ -73,12 +64,12 @@ def _run_evolution(config_path: str, output_dir: str,
 
             # Render all genomes
             individuals = []
-            for idx, (_, genome) in enumerate(genomes, start=1):
+            for idx, genome in enumerate(genomes, start=1):
                 path = cssn.render_genome(
-                    genome, cfg, g, idx, output_dir, fm_enabled
+                    genome, g, idx, output_dir, fm_enabled
                 )
                 # Compute waveform thumbnails (carrier and modulator, 120 points each).
-                net          = neat.nn.FeedForwardNetwork.create(genome, cfg)
+                net          = neat_impl.FeedForwardNetwork.create(genome, cssn.ACTIVATION_FUNCS)
                 car, mod     = cssn.generate_waveform(net, cssn.N_PERIODIC)
                 wt_car       = cssn.fourier_wavetable(car)
                 wt_mod       = cssn.fourier_wavetable(mod)
@@ -104,11 +95,10 @@ def _run_evolution(config_path: str, output_dir: str,
 
             # Assign NEAT fitness
             # [NOT IN PAPER]: selected → 1.0, unselected → 0.01
-            # (same as the console version; non-zero fitness prevents
-            #  degenerate speciation in neat-python)
+            # (non-zero fitness prevents degenerate speciation)
             with _lock:
                 selected = set(_selected_ids)
-            for idx, (_, genome) in enumerate(genomes, start=1):
+            for idx, genome in enumerate(genomes, start=1):
                 genome.fitness = 1.0 if str(idx) in selected else 0.01
 
             with _lock:
@@ -170,14 +160,10 @@ def main() -> None:
     )
     parser.add_argument("--generations", "-g", type=int, default=20)
     parser.add_argument("--output",      "-o", default="output_web")
-    parser.add_argument("--config",      "-c", default="neat_config.txt")
     parser.add_argument("--no-fm",       action="store_true")
     parser.add_argument("--port",        "-p", type=int, default=5001)
     args = parser.parse_args()
 
-    config_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), args.config
-    )
     os.makedirs(args.output, exist_ok=True)
 
     app.config["OUTPUT_DIR"] = os.path.abspath(args.output)
@@ -185,7 +171,7 @@ def main() -> None:
     # Start the evolution in a daemon thread so Ctrl-C stops everything.
     t = threading.Thread(
         target=_run_evolution,
-        args=(config_path, args.output, not args.no_fm, args.generations),
+        args=(args.output, not args.no_fm, args.generations),
         daemon=True,
     )
     t.start()

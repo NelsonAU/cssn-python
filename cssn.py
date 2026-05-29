@@ -20,9 +20,9 @@ import math
 import os
 import wave
 
-import neat
 import numpy as np
-from neat.activations import ActivationFunctionSet
+
+from neat_impl import FeedForwardNetwork, Genome, NeatConfig, Population
 
 
 # Activation functions
@@ -57,23 +57,14 @@ def linear_activation(x: float) -> float:
     return max(-1.0, min(1.0, x))
 
 
-# Register our functions with neat-python's ActivationFunctionSet *before*
-# neat.Config is loaded, because Config.__init__ validates activation_options
-# against the registered set.  We patch the class __init__ so every new
-# ActivationFunctionSet instance (created inside DefaultGenomeConfig.__init__)
-# automatically includes our functions.
-_orig_afs_init = ActivationFunctionSet.__init__
-
-
-def _patched_afs_init(self: ActivationFunctionSet) -> None:
-    _orig_afs_init(self)
-    self.add("gaussian",        gaussian_activation)
-    self.add("bipolar_sigmoid", bipolar_sigmoid_activation)
-    self.add("sin",             sin_activation)    # shadows identical built-in
-    self.add("linear",          linear_activation) # built-in 'identity' is unclamped
-
-
-ActivationFunctionSet.__init__ = _patched_afs_init  # type: ignore[method-assign]
+# Map activation names → functions.  Passed to NeatConfig and used whenever
+# a FeedForwardNetwork is built from a Genome.
+ACTIVATION_FUNCS: dict[str, object] = {
+    "gaussian":        gaussian_activation,
+    "bipolar_sigmoid": bipolar_sigmoid_activation,
+    "sin":             sin_activation,
+    "linear":          linear_activation,
+}
 
 
 # Constants
@@ -89,10 +80,7 @@ P_WEIGHT_MUTATE  = 0.7      # §4.1: "probability of weight mutation … 0.7"
 
 # §3.1: "an integer value n that determines the number of repeating
 #  patterns in the waveform" — paper describes n as adjustable but gives no
-#  fixed default.  The 2014 draft's experimental notes (commented out) suggest
-#  n=10; the note "5 for gen 1, reduced to 1 thereafter" in the paper refers to
-#  the Breedesizer UI's *mutation-count* slider (§3.2), NOT this parameter.
-#  [NOT IN PAPER]: value 1 chosen as a conservative default.
+#  fixed default.  [NOT IN PAPER]: value 1 chosen as a conservative default.
 N_PERIODIC       = 1
 
 # [NOT IN PAPER] — reasonable standard defaults:
@@ -107,7 +95,7 @@ FM_MOD_AMP       = 0.3      # modulation index: peak freq deviation as fraction 
 # Waveform generation
 
 def generate_waveform(
-    net: neat.nn.FeedForwardNetwork,
+    net: FeedForwardNetwork,
     n_periodic: int,
     size: int = WAVETABLE_SIZE,
     symmetric: bool = True,
@@ -121,8 +109,7 @@ def generate_waveform(
       [1]  sin(n · |y|)     – §3.1: "a sine function of the absolute value of
                                y, allowing for an adjustable integer value n
                                that determines the number of repeating patterns"
-    The paper's third input (bias 1.0) is omitted: neat-python adds a trainable
-    per-node bias internally, making a constant input redundant.
+      [2]  1.0              – §3.1: constant bias input
 
     symmetric=False lifts the abs() from the periodic input, reproducing
     §3.1 Figure 4b (potentially discontinuous waveforms).
@@ -139,7 +126,7 @@ def generate_waveform(
     for i, y in enumerate(y_seq):
         abs_y    = abs(y)
         periodic = math.sin(n_periodic * (abs_y if symmetric else y))
-        out = net.activate([abs_y, periodic])
+        out = net.activate([abs_y, periodic, 1.0])
         carrier[i]   = out[0]
         modulator[i] = out[1]
 
@@ -260,25 +247,30 @@ def write_wav(path: str, audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> N
 
 # Per-genome pipeline
 
+def make_neat_config() -> NeatConfig:
+    """Return a NeatConfig populated with the paper's CSSN parameters."""
+    return NeatConfig(
+        num_inputs=3,
+        num_outputs=2,
+        activation_options=list(ACTIVATION_FUNCS),
+        activation_funcs=ACTIVATION_FUNCS,   # type: ignore[arg-type]
+        pop_size=POP_SIZE,
+        p_add_conn=P_ADD_CONN,
+        p_add_node=P_ADD_NODE,
+        p_weight_mutate=P_WEIGHT_MUTATE,
+    )
+
+
 def render_genome(
-    genome:     neat.DefaultGenome,
-    config:     neat.Config,
+    genome:     Genome,
     gen_idx:    int,
     ind_idx:    int,
     output_dir: str,
     fm_enabled: bool = True,
     n_periodic: int  = N_PERIODIC,
 ) -> str:
-    """
-    Build a CSSN from a genome, synthesise a note, write WAV. Returns path.
-
-    DIVERGENCE FROM PAPER: §3.2 describes a mutation-count slider set to 5 for
-    generation 0 and 1 thereafter, producing extra diversity in the seed
-    population.  neat-python applies exactly one mutation pass per offspring
-    inside DefaultReproduction.reproduce(), with no public hook to apply
-    additional passes, so this schedule is not replicated here.
-    """
-    net = neat.nn.FeedForwardNetwork.create(genome, config)
+    """Build a CSSN from a genome, synthesise a note, write WAV. Returns path."""
+    net = FeedForwardNetwork.create(genome, ACTIVATION_FUNCS)   # type: ignore[arg-type]
 
     car_raw, mod_raw = generate_waveform(net, n_periodic)
     carrier_wt   = fourier_wavetable(car_raw)
