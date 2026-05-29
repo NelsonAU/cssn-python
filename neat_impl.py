@@ -6,7 +6,7 @@ Implements the core NEAT mechanisms described in:
     Augmenting Topologies." Evolutionary Computation 10(2), 99–127.
 
 NeatConfig exposes the parameters most likely to need tuning; everything else
-uses published NEAT defaults hard-coded as module-level constants.
+uses some hardcoded constants (see "Hard-coded NEAT parameters" below).
 """
 
 from __future__ import annotations
