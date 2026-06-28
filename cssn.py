@@ -89,7 +89,7 @@ ADSR_ATTACK_MS   = 20       # attack ramp (ms)
 ADSR_DECAY_MS    = 50       # decay from peak to sustain (ms)
 ADSR_SUSTAIN     = 0.8      # sustain amplitude fraction
 ADSR_RELEASE_MS  = 80       # release ramp at note end (ms)
-FM_MOD_AMP       = 0.3      # modulation index: peak freq deviation as fraction of carrier freq [NOT IN PAPER]
+FM_MOD_GAIN      = 300.0    # GECCO Figure 5 default modulator gain (Hz)
 
 
 # Waveform generation
@@ -199,7 +199,7 @@ def synthesize_note(
     duration_ms:  float = NOTE_DURATION_MS,
     sample_rate:  int   = SAMPLE_RATE,
     fm_enabled:   bool  = True,
-    mod_amp:      float = FM_MOD_AMP,
+    mod_amp:      float = FM_MOD_GAIN / NOTE_FREQ_HZ,
     mod_freq_ratio: float = 1.0,
     detune:       float = 0.0,
     adsr_enabled: bool  = True,
@@ -275,7 +275,7 @@ def render_genome(
     fm_enabled: bool = True,
     n_periodic: int  = N_PERIODIC,
     symmetric:  bool = True,
-    mod_amp:    float = FM_MOD_AMP,
+    mod_amp:    float = FM_MOD_GAIN / NOTE_FREQ_HZ,
     mod_freq_ratio: float = 1.0,
     detune:     float = 0.0,
     adsr_enabled: bool  = True,

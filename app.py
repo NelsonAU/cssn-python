@@ -48,7 +48,7 @@ _selected_ids: list[str] = []    # set just before _sel_given is set
 _current_genomes: list[neat_impl.Genome] = []
 
 _active_settings = {
-    "gain": 300.0,
+    "gain": cssn.FM_MOD_GAIN,
     "detune": 0.0,
     "offsets": 0,
     "n_periodic": 10,
