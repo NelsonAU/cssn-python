@@ -205,6 +205,70 @@
     }
     #empty.visible { display: block; }
     #empty p { margin-top: 8px; font-size: 13px; }
+
+    #synth-panel {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 28px;
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+    .panel-section {
+      flex: 1;
+      min-width: 250px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .panel-section h3 {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 4px;
+    }
+    .panel-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .panel-row label {
+      min-width: 170px;
+      color: var(--text);
+      font-size: 13px;
+    }
+    .panel-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--selected);
+      height: 6px;
+      border-radius: 3px;
+      outline: none;
+    }
+    .panel-row span {
+      min-width: 32px;
+      text-align: right;
+      font-family: monospace;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .checkbox-row {
+      gap: 8px;
+    }
+    .checkbox-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--selected);
+      cursor: pointer;
+    }
+    .checkbox-row label {
+      cursor: pointer;
+      user-select: none;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -214,6 +278,52 @@
   <div id="status-pill">starting</div>
   <div id="gen-label">Generation <span id="gen-num">—</span></div>
 </header>
+
+<div id="synth-panel">
+  <div class="panel-section">
+    <h3>CPPN Generation</h3>
+    <div class="panel-row">
+      <label for="repetition-input">Repetition Count:</label>
+      <input type="range" id="repetition-input" min="1" max="20" value="10">
+      <span id="repetition-val">10</span>
+    </div>
+    <div class="panel-row checkbox-row">
+      <input type="checkbox" id="variation-input">
+      <label for="variation-input">With variation (asymmetry)</label>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <h3>FM Synthesis</h3>
+    <div class="panel-row checkbox-row">
+      <input type="checkbox" id="fm-input" checked>
+      <label for="fm-input">Modulate (blue waveform)</label>
+    </div>
+    <div class="panel-row">
+      <label for="gain-input">Modulator gain:</label>
+      <input type="range" id="gain-input" min="0" max="1000" step="10" value="300">
+      <span id="gain-val">300</span>
+    </div>
+    <div class="panel-row">
+      <label for="detune-input">Modulator detune (Hz):</label>
+      <input type="range" id="detune-input" min="-20" max="20" step="1" value="0">
+      <span id="detune-val">0</span>
+    </div>
+    <div class="panel-row">
+      <label for="offsets-input">Quarter octave offsets:</label>
+      <input type="range" id="offsets-input" min="-3" max="12" step="1" value="0">
+      <span id="offsets-val">0</span>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <h3>Global</h3>
+    <div class="panel-row checkbox-row">
+      <input type="checkbox" id="adsr-input" checked>
+      <label for="adsr-input">Use envelope (ADSR)</label>
+    </div>
+  </div>
+</div>
 
 <main>
   <div id="grid"></div>
@@ -294,6 +404,9 @@ function buildCard(ind) {
   card.className = "card";
   card.dataset.id = ind.id;
 
+  const params = getSliderParams();
+  const audioSrc = `/api/audio/${ind.id}?gain=${params.gain}&detune=${params.detune}&offsets=${params.offsets}&n_periodic=${params.n_periodic}&variation=${params.variation}&adsr=${params.adsr}&fm=${params.fm}`;
+
   card.innerHTML = `
     <div class="card-header">
       <span class="card-num">#${ind.id}</span>
@@ -302,7 +415,7 @@ function buildCard(ind) {
     <div class="wave-wrap">
       <canvas class="wave" height="64"></canvas>
     </div>
-    <audio controls preload="auto" src="/audio/${ind.filename}"></audio>
+    <audio controls preload="auto" src="${audioSrc}"></audio>
   `;
 
   // Toggle selection on card click, but not when interacting with audio.
@@ -413,12 +526,22 @@ evolveBtn.addEventListener("click", async () => {
   if (selected.size === 0 || currentStatus !== "waiting") return;
 
   evolveBtn.disabled = true;
+  const params = getSliderParams();
 
   try {
     const res = await fetch("/api/select", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ selected: [...selected] }),
+      body:    JSON.stringify({
+        selected: [...selected],
+        gain: params.gain,
+        detune: params.detune,
+        offsets: params.offsets,
+        n_periodic: params.n_periodic,
+        variation: params.variation,
+        adsr: params.adsr,
+        fm: params.fm
+      }),
     });
     if (!res.ok) throw new Error(await res.text());
 
@@ -431,6 +554,78 @@ evolveBtn.addEventListener("click", async () => {
     evolveBtn.disabled = false;
   }
 });
+
+function getSliderParams() {
+  return {
+    gain: document.getElementById("gain-input").value,
+    detune: document.getElementById("detune-input").value,
+    offsets: document.getElementById("offsets-input").value,
+    n_periodic: document.getElementById("repetition-input").value,
+    variation: document.getElementById("variation-input").checked,
+    adsr: document.getElementById("adsr-input").checked,
+    fm: document.getElementById("fm-input").checked,
+  };
+}
+
+let debounceTimer = null;
+function applyParameters(immediate = false) {
+  const params = getSliderParams();
+
+  // Update audio elements
+  document.querySelectorAll(".card").forEach(card => {
+    const id = card.dataset.id;
+    const audio = card.querySelector("audio");
+    const newSrc = `/api/audio/${id}?gain=${params.gain}&detune=${params.detune}&offsets=${params.offsets}&n_periodic=${params.n_periodic}&variation=${params.variation}&adsr=${params.adsr}&fm=${params.fm}`;
+    if (audio.getAttribute("src") !== newSrc) {
+      audio.src = newSrc;
+    }
+  });
+
+  // Redraw waveforms
+  if (debounceTimer) clearTimeout(debounceTimer);
+
+  const triggerRedraw = () => {
+    document.querySelectorAll(".card").forEach(async card => {
+      const id = card.dataset.id;
+      const canvas = card.querySelector("canvas.wave");
+      try {
+        const res = await fetch(`/api/waveform/${id}?n_periodic=${params.n_periodic}&variation=${params.variation}`);
+        const data = await res.json();
+        drawWaveform(canvas, data.waveform_car, data.waveform_mod);
+      } catch (e) {
+        console.error(e);
+      }
+    });
+  };
+
+  if (immediate) {
+    triggerRedraw();
+  } else {
+    debounceTimer = setTimeout(triggerRedraw, 100);
+  }
+}
+
+// Bind input and change events
+document.getElementById("repetition-input").addEventListener("input", e => {
+  document.getElementById("repetition-val").textContent = e.target.value;
+  applyParameters();
+});
+document.getElementById("gain-input").addEventListener("input", e => {
+  document.getElementById("gain-val").textContent = e.target.value;
+  applyParameters();
+});
+document.getElementById("detune-input").addEventListener("input", e => {
+  document.getElementById("detune-val").textContent = e.target.value;
+  applyParameters();
+});
+document.getElementById("offsets-input").addEventListener("input", e => {
+  document.getElementById("offsets-val").textContent = e.target.value;
+  applyParameters();
+});
+
+document.getElementById("variation-input").addEventListener("change", () => applyParameters(true));
+document.getElementById("adsr-input").addEventListener("change", () => applyParameters(true));
+document.getElementById("fm-input").addEventListener("change", () => applyParameters(true));
 
 setStatus("starting", 0);
 empty.classList.add("visible");

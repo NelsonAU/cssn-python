@@ -79,9 +79,9 @@ P_ADD_NODE       = 0.13     # §4.1: "probability of adding a new node … 0.13"
 P_WEIGHT_MUTATE  = 0.7      # §4.1: "probability of weight mutation … 0.7"
 
 # §3.1: "an integer value n that determines the number of repeating
-#  patterns in the waveform" — paper describes n as adjustable but gives no
-#  fixed default.  [NOT IN PAPER]: value 1 chosen as a conservative default.
-N_PERIODIC       = 1
+#  patterns in the waveform" — paper describes n as adjustable. Figure 5
+#  shows a default value of 10, which we adopt here.
+N_PERIODIC       = 10
 
 # [NOT IN PAPER] — reasonable standard defaults:
 SAMPLE_RATE      = 44100    # standard CD-quality sample rate
@@ -201,6 +201,8 @@ def synthesize_note(
     fm_enabled:   bool  = True,
     mod_amp:      float = FM_MOD_AMP,
     mod_freq_ratio: float = 1.0,
+    detune:       float = 0.0,
+    adsr_enabled: bool  = True,
 ) -> np.ndarray:
     """
     Render one note using wavetable lookup with optional FM modulation.
@@ -222,7 +224,8 @@ def synthesize_note(
     t       = np.arange(n)
 
     if fm_enabled:
-        mod_phase = (t * freq * mod_freq_ratio / sample_rate) % 1.0
+        mod_freq  = freq * mod_freq_ratio + detune
+        mod_phase = (t * mod_freq / sample_rate) % 1.0
         mod_idx   = (mod_phase * wt_size).astype(int) % wt_size
         instantaneous_freq = freq * (1.0 + modulator_wt[mod_idx] * mod_amp)
         car_phase = np.cumsum(instantaneous_freq / sample_rate) % 1.0
@@ -230,8 +233,11 @@ def synthesize_note(
         car_phase = (t * freq / sample_rate) % 1.0
 
     car_idx = (car_phase * wt_size).astype(int) % wt_size
+    audio   = carrier_wt[car_idx].copy()
 
-    return apply_adsr(carrier_wt[car_idx].copy(), sample_rate)
+    if adsr_enabled:
+        return apply_adsr(audio, sample_rate)
+    return audio
 
 
 def write_wav(path: str, audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> None:
@@ -268,14 +274,27 @@ def render_genome(
     output_dir: str,
     fm_enabled: bool = True,
     n_periodic: int  = N_PERIODIC,
+    symmetric:  bool = True,
+    mod_amp:    float = FM_MOD_AMP,
+    mod_freq_ratio: float = 1.0,
+    detune:     float = 0.0,
+    adsr_enabled: bool  = True,
 ) -> str:
     """Build a CSSN from a genome, synthesise a note, write WAV. Returns path."""
     net = FeedForwardNetwork.create(genome, ACTIVATION_FUNCS)   # type: ignore[arg-type]
 
-    car_raw, mod_raw = generate_waveform(net, n_periodic)
+    car_raw, mod_raw = generate_waveform(net, n_periodic, symmetric=symmetric)
     carrier_wt   = fourier_wavetable(car_raw)
     modulator_wt = fourier_wavetable(mod_raw)
-    audio        = synthesize_note(carrier_wt, modulator_wt, fm_enabled=fm_enabled)
+    audio        = synthesize_note(
+        carrier_wt,
+        modulator_wt,
+        fm_enabled=fm_enabled,
+        mod_amp=mod_amp,
+        mod_freq_ratio=mod_freq_ratio,
+        detune=detune,
+        adsr_enabled=adsr_enabled,
+    )
 
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, f"gen{gen_idx:03d}_ind{ind_idx:02d}.wav")
